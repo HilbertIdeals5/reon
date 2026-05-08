@@ -1715,6 +1715,19 @@ function simpleDecodeBytesToText(buf, tableId) {
 // Reverse: plain text -> bytes via table; pad with 0x50 to maxBytes.
 const SIMPLE_ENCODE_CACHE = new Map();
 
+function repairMojibakeString(input) {
+  if (typeof input !== "string" || input.length === 0) return input || "";
+  try {
+    const repaired = Buffer.from(input, "latin1").toString("utf8");
+    if (repaired && !repaired.includes("\uFFFD")) {
+      return repaired;
+    }
+  } catch (e) {
+    // Fall back to original input.
+  }
+  return input;
+}
+
 function simpleEncodeTextToBytes(text, tableId, maxBytes) {
   const table = getEncodingTable(tableId);
   if (!table) return Buffer.alloc(maxBytes, 0x50);
@@ -1723,17 +1736,27 @@ function simpleEncodeTextToBytes(text, tableId, maxBytes) {
   if (!reverse) {
     reverse = new Map();
     for (const [hex, val] of Object.entries(table)) {
-      if (typeof val === "string" && val.length === 1 && !reverse.has(val)) {
-        reverse.set(val, parseInt(hex, 16));
+      if (typeof val !== "string" || val.length === 0) continue;
+      const byteValue = parseInt(hex, 16);
+      const aliases = [String(val).normalize("NFC")];
+      const repaired = repairMojibakeString(val);
+      if (repaired && repaired !== val) {
+        aliases.push(String(repaired).normalize("NFC"));
+      }
+
+      for (const alias of aliases) {
+        if (Array.from(alias).length === 1 && !reverse.has(alias)) {
+          reverse.set(alias, byteValue);
+        }
       }
     }
     SIMPLE_ENCODE_CACHE.set(tableId, reverse);
   }
 
   const out = [];
-  const src = String(text);
-  for (let i = 0; i < src.length && out.length < maxBytes; i++) {
-    const ch = src[i];
+  const src = String(text).normalize("NFC");
+  for (const ch of Array.from(src)) {
+    if (out.length >= maxBytes) break;
     if (reverse.has(ch)) {
       out.push(reverse.get(ch));
     }
@@ -2456,7 +2479,18 @@ function isDefaultPokemonName(sourceRegion, species, nicknameBytes) {
   if (!def) return false;
   const nickTrim = trimNameBytes(nicknameBytes);
   const defTrim = trimNameBytes(def);
-  return nickTrim.length > 0 && nickTrim.equals(defTrim);
+  if (nickTrim.length === 0) return false;
+  if (nickTrim.equals(defTrim)) return true;
+
+  // Fallback to decoded-text comparison to handle equivalent display names
+  // that may differ at the byte level across some JP encodings.
+  const srcR = String(sourceRegion || "").toLowerCase();
+  const tableId = srcR === "j" ? "jp" : nameTableForRegion(srcR);
+  if (!tableId) return false;
+
+  const nickText = simpleDecodeBytesToText(nickTrim, tableId);
+  const defText = simpleDecodeBytesToText(defTrim, tableId);
+  return !!nickText && nickText === defText;
 }
 
 function convertDefaultPokemonNameBetweenRegions(
@@ -2499,32 +2533,100 @@ function convertPokemonNicknameForDownload(
   const isSourceJ = srcR === "j";
   const isDestJ = dstR === "j";
 
+  let safeDefaultForDest = loadDefaultPokemonNameBytes(dstR, species);
+  if (!safeDefaultForDest) safeDefaultForDest = Buffer.alloc(destMaxBytes, 0x50);
+  safeDefaultForDest = Buffer.from(safeDefaultForDest);
+  if (safeDefaultForDest.length > destMaxBytes) {
+    safeDefaultForDest = safeDefaultForDest.slice(0, destMaxBytes);
+  }
+  if (safeDefaultForDest.length < destMaxBytes) {
+    safeDefaultForDest = Buffer.concat([
+      safeDefaultForDest,
+      Buffer.alloc(destMaxBytes - safeDefaultForDest.length, 0x50),
+    ]);
+  }
+
   if (isSourceJ && !isDestJ) {
     const jp = simpleDecodeBytesToText(nicknameBytes, "jp");
-    if (!jp) return nicknameBytes;
+    if (!jp) return safeDefaultForDest;
     const ascii = transliterateJpToEnName(jp, destMaxBytes);
     const tableId = nameTableForRegion(destRegion);
-    if (!tableId) return nicknameBytes;
-    return simpleEncodeTextToBytes(ascii, tableId, destMaxBytes);
+    if (!tableId) return safeDefaultForDest;
+    const converted = simpleEncodeTextToBytes(ascii, tableId, destMaxBytes);
+    if (trimNameBytes(converted).length === 0) return safeDefaultForDest;
+    return converted;
   }
 
   if (!isSourceJ && isDestJ) {
     const srcTable = nameTableForRegion(sourceRegion);
-    if (!srcTable) return nicknameBytes;
+    if (!srcTable) {
+      const jpDefault = loadDefaultPokemonNameBytes("j", species);
+      if (jpDefault) {
+        let buf = Buffer.from(jpDefault);
+        if (buf.length > destMaxBytes) buf = buf.slice(0, destMaxBytes);
+        if (buf.length < destMaxBytes) {
+          buf = Buffer.concat([
+            buf,
+            Buffer.alloc(destMaxBytes - buf.length, 0x50),
+          ]);
+        }
+        return buf;
+      }
+      return Buffer.alloc(destMaxBytes, 0x50);
+    }
     const plain = simpleDecodeBytesToText(nicknameBytes, srcTable);
-    if (!plain) return nicknameBytes;
+    if (!plain) {
+      const jpDefault = loadDefaultPokemonNameBytes("j", species);
+      if (jpDefault) {
+        let buf = Buffer.from(jpDefault);
+        if (buf.length > destMaxBytes) buf = buf.slice(0, destMaxBytes);
+        if (buf.length < destMaxBytes) {
+          buf = Buffer.concat([
+            buf,
+            Buffer.alloc(destMaxBytes - buf.length, 0x50),
+          ]);
+        }
+        return buf;
+      }
+      return Buffer.alloc(destMaxBytes, 0x50);
+    }
     const kat = transliterateEnToJpName(plain, destMaxBytes);
-    if (!kat) return nicknameBytes;
+    if (!kat) {
+      const jpDefault = loadDefaultPokemonNameBytes("j", species);
+      if (jpDefault) {
+        let buf = Buffer.from(jpDefault);
+        if (buf.length > destMaxBytes) buf = buf.slice(0, destMaxBytes);
+        if (buf.length < destMaxBytes) {
+          buf = Buffer.concat([
+            buf,
+            Buffer.alloc(destMaxBytes - buf.length, 0x50),
+          ]);
+        }
+        return buf;
+      }
+      return Buffer.alloc(destMaxBytes, 0x50);
+    }
     return simpleEncodeTextToBytes(kat, "jp", destMaxBytes);
   }
 
-  // non-J <-> non-J: unchanged except padding
-  let buf = Buffer.from(nicknameBytes);
-  if (buf.length > destMaxBytes) buf = buf.slice(0, destMaxBytes);
-  if (buf.length < destMaxBytes) {
-    buf = Buffer.concat([buf, Buffer.alloc(destMaxBytes - buf.length, 0x50)]);
+  // non-J <-> non-J: convert between language tables so cross-language
+  // international trades don't leak source-table-only bytes.
+  const safeFallback = safeDefaultForDest;
+
+  const srcTable = nameTableForRegion(sourceRegion);
+  const destTable = nameTableForRegion(destRegion);
+  if (!srcTable || !destTable) return safeFallback;
+
+  const plain = simpleDecodeBytesToText(nicknameBytes, srcTable);
+  if (!plain) return safeFallback;
+
+  let converted = simpleEncodeTextToBytes(plain, destTable, destMaxBytes);
+  if (trimNameBytes(converted).length === 0) {
+    const normalized = normalizeLatinForJp(plain);
+    converted = simpleEncodeTextToBytes(normalized, destTable, destMaxBytes);
   }
-  return buf;
+  if (trimNameBytes(converted).length === 0) return safeFallback;
+  return converted;
 }
 
 function convertPlayerNameForDownload(
@@ -2546,32 +2648,339 @@ function convertPlayerNameForDownload(
 
   const isSourceJ = srcR === "j";
   const isDestJ = dstR === "j";
+  const safeFallback = Buffer.alloc(destMaxBytes, 0x50);
 
   if (isSourceJ && !isDestJ) {
     const jp = simpleDecodeBytesToText(nameBytes, "jp");
-    if (!jp) return nameBytes;
+    if (!jp) return safeFallback;
     const ascii = transliterateJpToEnName(jp, destMaxBytes);
     const tableId = nameTableForRegion(destRegion);
-    if (!tableId) return nameBytes;
-    return simpleEncodeTextToBytes(ascii, tableId, destMaxBytes);
+    if (!tableId) return safeFallback;
+    const converted = simpleEncodeTextToBytes(ascii, tableId, destMaxBytes);
+    if (trimNameBytes(converted).length === 0) return safeFallback;
+    return converted;
   }
 
   if (!isSourceJ && isDestJ) {
     const srcTable = nameTableForRegion(sourceRegion);
-    if (!srcTable) return nameBytes;
+    if (!srcTable) return Buffer.alloc(destMaxBytes, 0x50);
     const plain = simpleDecodeBytesToText(nameBytes, srcTable);
-    if (!plain) return nameBytes;
+    if (!plain) return Buffer.alloc(destMaxBytes, 0x50);
     const kat = transliterateEnToJpName(plain, destMaxBytes);
-    if (!kat) return nameBytes;
+    if (!kat) return Buffer.alloc(destMaxBytes, 0x50);
     return simpleEncodeTextToBytes(kat, "jp", destMaxBytes);
   }
 
-  let buf = Buffer.from(nameBytes);
-  if (buf.length > destMaxBytes) buf = buf.slice(0, destMaxBytes);
-  if (buf.length < destMaxBytes) {
-    buf = Buffer.concat([buf, Buffer.alloc(destMaxBytes - buf.length, 0x50)]);
+  const srcTable = nameTableForRegion(sourceRegion);
+  const destTable = nameTableForRegion(destRegion);
+  if (!srcTable || !destTable) return safeFallback;
+
+  const plain = simpleDecodeBytesToText(nameBytes, srcTable);
+  if (!plain) return safeFallback;
+
+  let converted = simpleEncodeTextToBytes(plain, destTable, destMaxBytes);
+  if (trimNameBytes(converted).length === 0) {
+    const normalized = normalizeLatinForJp(plain);
+    converted = simpleEncodeTextToBytes(normalized, destTable, destMaxBytes);
   }
-  return buf;
+  if (trimNameBytes(converted).length === 0) return safeFallback;
+  return converted;
+}
+
+function getTradeMailLayout(region) {
+  const r = String(region || "").toLowerCase();
+  const isJ = r === "j";
+
+  const textOffset = 0x00;
+  const textLen = 0x21; // 16 bytes + 0x4E line break + 16 bytes
+  const authorOffset = textOffset + textLen;
+  const authorLen = isJ ? 5 : 8;
+  const nationalityOffset = authorOffset + authorLen;
+  const nationalityLen = isJ ? 0 : 2;
+  const tailOffset = nationalityOffset + nationalityLen;
+  const tailLen = 4; // trainer_id (2) + species (1) + mail item (1)
+  const totalLen = tailOffset + tailLen;
+
+  return {
+    isJ,
+    textOffset,
+    textLen,
+    authorOffset,
+    authorLen,
+    nationalityOffset,
+    nationalityLen,
+    tailOffset,
+    tailLen,
+    totalLen,
+  };
+}
+
+function nonJMailNationalityPairForRegion(region) {
+  switch (String(region || "").toLowerCase()) {
+    case "f":
+      return Buffer.from([0x84, 0x85]); // EF
+    case "d":
+      return Buffer.from([0x84, 0x86]); // EG
+    case "i":
+      return Buffer.from([0x84, 0x88]); // EI
+    case "s":
+      return Buffer.from([0x84, 0x92]); // ES
+    case "e":
+    case "p":
+    case "u":
+    default:
+      return Buffer.from([0x00, 0x00]); // English/default
+  }
+}
+
+const MAIL_ALLOWED_BYTES = {
+  j: {
+    message: [
+      0x00, 0x01, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x10, 0x11,
+      0x12, 0x13, 0x19, 0x1a, 0x1b, 0x1c, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b,
+      0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x37, 0x3a, 0x3b, 0x3c, 0x3d,
+      0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+      0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+      0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+      0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1,
+      0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad,
+      0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+      0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5,
+      0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1,
+      0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd,
+      0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe9, 0xea, 0xeb, 0xf3,
+      0xf4, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff,
+    ],
+    author: [
+      0x00, 0x01, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x10, 0x11,
+      0x12, 0x13, 0x19, 0x1a, 0x1b, 0x1c, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b,
+      0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x37, 0x3a, 0x3b, 0x3c, 0x3d,
+      0x3e, 0x3f, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49,
+      0x4e, 0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88,
+      0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94,
+      0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0,
+      0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac,
+      0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8,
+      0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4,
+      0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0,
+      0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc,
+      0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe9, 0xea, 0xeb,
+      0xf4,
+    ],
+  },
+  nonJ: {
+    "0000": {
+      message: [
+        0x50, 0x54, 0x70, 0x71, 0x72, 0x73, 0x75, 0x7f, 0x80, 0x81, 0x82, 0x83,
+        0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
+        0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b,
+        0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+        0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3,
+        0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5,
+        0xd6, 0xe0, 0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xe9, 0xef, 0xf0, 0xf1,
+        0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe,
+        0xff,
+      ],
+      author: [
+        0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+        0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1,
+        0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad,
+        0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+        0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xf1, 0xf3, 0xf4,
+      ],
+    },
+    "8485": {
+      message: [
+        0x50, 0x70, 0x71, 0x72, 0x73, 0x75, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84,
+        0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90,
+        0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c,
+        0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8,
+        0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4,
+        0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbd, 0xbf, 0xc8, 0xc9, 0xca,
+        0xcb, 0xcc, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd8, 0xd9, 0xda,
+        0xdb, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xed,
+        0xf0, 0xf1, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc,
+        0xfd, 0xfe, 0xff,
+      ],
+      author: [
+        0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+        0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1,
+        0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad,
+        0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+        0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xf1, 0xf3, 0xf4,
+      ],
+    },
+    "8486": {
+      message: [
+        0x50, 0x70, 0x71, 0x72, 0x73, 0x75, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84,
+        0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90,
+        0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c,
+        0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8,
+        0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4,
+        0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xbe, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5,
+        0xc6, 0xc7, 0xe0, 0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xef,
+        0xf0, 0xf1, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc,
+        0xfd, 0xfe, 0xff,
+      ],
+      author: [
+        0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+        0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2,
+        0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae,
+        0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xc0,
+        0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xf1,
+        0xf3, 0xf4,
+      ],
+    },
+    "8488": {
+      message: [
+        0x50, 0x70, 0x71, 0x72, 0x73, 0x75, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84,
+        0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90,
+        0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c,
+        0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8,
+        0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4,
+        0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbd, 0xbe, 0xbf, 0xc6, 0xc7,
+        0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xd2, 0xd3,
+        0xd4, 0xd5, 0xd6, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xe0, 0xe1,
+        0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xee, 0xf0, 0xf1,
+        0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe,
+        0xff,
+      ],
+      author: [
+        0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+        0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1,
+        0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad,
+        0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+        0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xf1, 0xf3, 0xf4,
+      ],
+    },
+    "8492": {
+      message: [
+        0x50, 0x70, 0x71, 0x72, 0x73, 0x75, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84,
+        0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90,
+        0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c,
+        0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8,
+        0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4,
+        0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbd, 0xbe, 0xbf, 0xc6, 0xc7,
+        0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xd2, 0xd3,
+        0xd4, 0xd5, 0xd6, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xe0, 0xe1,
+        0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xee, 0xf0, 0xf1,
+        0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe,
+        0xff,
+      ],
+      author: [
+        0x50, 0x7f, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+        0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95,
+        0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f, 0xa0, 0xa1,
+        0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad,
+        0xae, 0xaf, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9,
+        0xe1, 0xe2, 0xe3, 0xe6, 0xe7, 0xe8, 0xf1, 0xf3, 0xf4,
+      ],
+    },
+  },
+};
+
+function toByteSet(list) {
+  const out = new Set();
+  if (!Array.isArray(list)) return out;
+  for (const value of list) {
+    out.add((Number(value) || 0) & 0xff);
+  }
+  return out;
+}
+
+const MAIL_ALLOWED_SETS = {
+  j: {
+    message: toByteSet(MAIL_ALLOWED_BYTES.j.message),
+    author: toByteSet(MAIL_ALLOWED_BYTES.j.author),
+  },
+  nonJ: {
+    "0000": {
+      message: toByteSet(MAIL_ALLOWED_BYTES.nonJ["0000"].message),
+      author: toByteSet(MAIL_ALLOWED_BYTES.nonJ["0000"].author),
+    },
+    "8485": {
+      message: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8485"].message),
+      author: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8485"].author),
+    },
+    "8486": {
+      message: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8486"].message),
+      author: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8486"].author),
+    },
+    "8488": {
+      message: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8488"].message),
+      author: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8488"].author),
+    },
+    "8492": {
+      message: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8492"].message),
+      author: toByteSet(MAIL_ALLOWED_BYTES.nonJ["8492"].author),
+    },
+  },
+};
+
+function mailNatKeyFromPair(pair) {
+  if (!Buffer.isBuffer(pair) || pair.length < 2) return null;
+  return (
+    pair[0].toString(16).toUpperCase().padStart(2, "0") +
+    pair[1].toString(16).toUpperCase().padStart(2, "0")
+  );
+}
+
+function sanitizeMailForDestination(mailBlob, destRegion) {
+  if (!Buffer.isBuffer(mailBlob) || mailBlob.length === 0) {
+    return mailBlob;
+  }
+
+  const layout = getTradeMailLayout(destRegion);
+  if (!layout || mailBlob.length < layout.totalLen) {
+    return mailBlob;
+  }
+
+  const out = Buffer.from(mailBlob.subarray(0, layout.totalLen));
+  let msgSet = MAIL_ALLOWED_SETS.j.message;
+  let authorSet = MAIL_ALLOWED_SETS.j.author;
+
+  if (!layout.isJ && layout.nationalityLen === 2) {
+    let natPair = null;
+    if (out.length >= layout.nationalityOffset + 2) {
+      natPair = Buffer.from(out.slice(layout.nationalityOffset, layout.nationalityOffset + 2));
+    }
+    let natKey = mailNatKeyFromPair(natPair);
+    if (!natKey || !MAIL_ALLOWED_SETS.nonJ[natKey]) {
+      natPair = nonJMailNationalityPairForRegion(destRegion);
+      natPair.copy(out, layout.nationalityOffset, 0, 2);
+      natKey = mailNatKeyFromPair(natPair);
+    }
+
+    const sets = MAIL_ALLOWED_SETS.nonJ[natKey] || MAIL_ALLOWED_SETS.nonJ["0000"];
+    msgSet = sets.message;
+    authorSet = sets.author;
+  }
+
+  const msgStart = layout.textOffset;
+  const msgEnd = Math.min(layout.textOffset + layout.textLen, out.length);
+  for (let i = msgStart; i < msgEnd; i++) {
+    if (i === msgStart + 16) {
+      out[i] = 0x4e;
+      continue;
+    }
+    if (!msgSet.has(out[i])) {
+      out[i] = 0x50;
+    }
+  }
+
+  const authorStart = layout.authorOffset;
+  const authorEnd = Math.min(layout.authorOffset + layout.authorLen, out.length);
+  for (let i = authorStart; i < authorEnd; i++) {
+    if (!authorSet.has(out[i])) {
+      out[i] = 0x50;
+    }
+  }
+
+  return out;
 }
 
 // ------------------------------
@@ -2602,9 +3011,9 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
     pokemon = Buffer.from(pokemon || "", "binary");
   if (!Buffer.isBuffer(mail)) mail = Buffer.from(mail || "", "binary");
 
-  // If both source and destination are non-J, or if regions are identical,
-  // do not attempt any cross-region conversion.
-  if (srcR === dstR || (!isSourceJ && !isDestJ)) {
+  // Same-region trade: keep payload bytes unchanged except for strict
+  // destination-size padding/truncation.
+  if (srcR === dstR) {
     // Ensure outer trainer name has the correct destination length.
     if (trainerName.length > destNameLen)
       trainerName = trainerName.subarray(0, destNameLen);
@@ -2630,6 +3039,10 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
         Buffer.alloc(destMailLen - mail.length, 0x00),
       ]);
 
+    if (mail.length > 0) {
+      mail = sanitizeMailForDestination(mail, destRegion);
+    }
+
     return { trainerName, pokemon, mail };
   }
 
@@ -2652,7 +3065,7 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
     const destOtLen = isDestJ ? 5 : 7;
 
     const srcNickOffset = isSourceJ ? 0x35 : 0x37;
-    const srcNickLen = isSourceJ ? 5 : 11;
+    const srcNickLen = isSourceJ ? 5 : 10;
     const destNickOffset = isDestJ ? 0x35 : 0x37;
     const destNickLen = isDestJ ? 5 : 10;
 
@@ -2708,28 +3121,39 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
 
   // --- Mail text and name conversion ---
   if (mail.length > 0) {
-    const srcTextOffset = 0x00;
-    const srcTextLen = 0x21; // 33 bytes: 16 + 0x4E + 16
-
-    const destTextOffset = 0x00;
-    const destTextLen = 0x21;
-
-    const srcNameOffset = srcTextOffset + srcTextLen;
-    const destNameOffset = destTextOffset + destTextLen;
-
-    // Mail struct layout: [33 bytes text][name][4 bytes metadata].
     const srcMailLen = mail.length;
-    const srcMetaLen = 4;
-    const srcMetaOffset =
-      srcMailLen >= srcMetaLen ? srcMailLen - srcMetaLen : srcMailLen;
-    const srcNameLen = Math.max(0, srcMetaOffset - srcNameOffset);
+    const srcMailLayout = getTradeMailLayout(sourceRegion);
+    const destMailLayout = getTradeMailLayout(destRegion);
 
-    const destMetaLen = 4;
-    const destMetaOffset =
-      destMailLen >= destMetaLen ? destMailLen - destMetaLen : destMailLen;
-    const destNameLenMail = Math.max(0, destMetaOffset - destNameOffset);
+    const srcTextOffset = srcMailLayout.textOffset;
+    const srcTextLen = srcMailLayout.textLen;
+    const destTextOffset = destMailLayout.textOffset;
+    const destTextLen = destMailLayout.textLen;
 
-    let destMail = Buffer.alloc(destMailLen, 0x00);
+    const srcAuthorOffset = srcMailLayout.authorOffset;
+    const srcAuthorLen = srcMailLayout.authorLen;
+    const destAuthorOffset = destMailLayout.authorOffset;
+    const destAuthorLen = destMailLayout.authorLen;
+
+    const srcTailOffset = srcMailLayout.tailOffset;
+    const srcTailLen = srcMailLayout.tailLen;
+    const destTailOffset = destMailLayout.tailOffset;
+    const destTailLen = destMailLayout.tailLen;
+
+    let destMail = Buffer.alloc(destMailLayout.totalLen, 0x00);
+
+    // Start from a safe blank mail text layout so line-break formatting is
+    // always valid even when conversion input is empty or malformed.
+    destMail.fill(0x50, destTextOffset, destTextOffset + 16);
+    destMail[destTextOffset + 16] = 0x4e;
+    destMail.fill(0x50, destTextOffset + 17, destTextOffset + destTextLen);
+
+    // Fill author with terminators by default.
+    destMail.fill(
+      0x50,
+      destAuthorOffset,
+      destAuthorOffset + destAuthorLen
+    );
 
     const srcTableId = nameTableForRegion(sourceRegion);
     const destTableId = nameTableForRegion(destRegion);
@@ -2787,7 +3211,6 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
             if (ascii) {
               const enc = encodeMailText33(ascii, destTableId);
               const copyLen = Math.min(destTextLen, enc.length);
-              destMail.fill(0x50, destTextOffset, destTextOffset + destTextLen);
               enc.copy(destMail, destTextOffset, 0, copyLen);
             }
           }
@@ -2801,7 +3224,6 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
             if (kat) {
               const enc = encodeMailText33(kat, destTableId);
               const copyLen = Math.min(destTextLen, enc.length);
-              destMail.fill(0x50, destTextOffset, destTextOffset + destTextLen);
               enc.copy(destMail, destTextOffset, 0, copyLen);
             }
           }
@@ -2814,41 +3236,66 @@ function transformExchangePayloadForEmail(destRegion, sourceRegion, row) {
     }
 
     // Mail player name field inside the mail blob.
-    if (srcMailLen > srcNameOffset && destNameLenMail > 0) {
-      const nameSlice = mail.slice(srcNameOffset, srcMetaOffset);
+    if (srcMailLen > srcAuthorOffset && destAuthorLen > 0) {
+      const srcAuthorEnd = Math.min(
+        srcMailLen,
+        srcAuthorOffset + srcAuthorLen
+      );
+      const nameSlice = mail.slice(srcAuthorOffset, srcAuthorEnd);
       const newName = convertPlayerNameForDownload(
         destRegion,
         sourceRegion,
         nameSlice,
-        destNameLenMail
+        destAuthorLen
       );
-      const writeLen = Math.min(destNameLenMail, newName.length);
-      newName.copy(destMail, destNameOffset, 0, writeLen);
+      const writeLen = Math.min(destAuthorLen, newName.length);
+      newName.copy(destMail, destAuthorOffset, 0, writeLen);
     }
 
-    // JP -> non-J: non-J mail includes 2 nationality bytes immediately before the 4-byte metadata tail.
-    // JP and EN mail have no nationality bytes, so default them to 0x00,0x00 (instead of inheriting name padding).
-    if (isSourceJ && !isDestJ) {
-      if (destMetaOffset >= 2) {
-        destMail[destMetaOffset - 2] = 0x00;
-        destMail[destMetaOffset - 1] = 0x00;
+    // Non-J mail carries 2 nationality bytes after the author field.
+    // Preserve source nationality for non-J -> non-J-like payloads, and for
+    // JP -> non-J set a destination-appropriate language marker.
+    if (!destMailLayout.isJ && destMailLayout.nationalityLen === 2) {
+      let natPair = null;
+      if (!srcMailLayout.isJ && srcMailLayout.nationalityLen === 2) {
+        const srcNatEnd = Math.min(
+          srcMailLen,
+          srcMailLayout.nationalityOffset + srcMailLayout.nationalityLen
+        );
+        const srcNat = mail.slice(srcMailLayout.nationalityOffset, srcNatEnd);
+        if (srcNat.length === 2) {
+          natPair = Buffer.from(srcNat);
+        }
       }
+      if (!natPair || natPair.length !== 2) {
+        natPair = nonJMailNationalityPairForRegion(destRegion);
+      }
+      natPair.copy(destMail, destMailLayout.nationalityOffset, 0, 2);
     }
 
     // Preserve trailing mail metadata (trainer ID, species, mail item, etc.).
     if (
-      srcMailLen >= srcMetaOffset + srcMetaLen &&
-      destMailLen >= destMetaOffset + destMetaLen
+      srcMailLen >= srcTailOffset + srcTailLen &&
+      destMailLayout.totalLen >= destTailOffset + destTailLen
     ) {
       mail.copy(
         destMail,
-        destMetaOffset,
-        srcMetaOffset,
-        srcMetaOffset + srcMetaLen
+        destTailOffset,
+        srcTailOffset,
+        srcTailOffset + srcTailLen
       );
     }
 
     mail = destMail;
+  }
+
+  if (mail.length > 0) {
+    if (mail.length > destMailLen) {
+      mail = mail.subarray(0, destMailLen);
+    } else if (mail.length < destMailLen) {
+      mail = Buffer.concat([mail, Buffer.alloc(destMailLen - mail.length, 0x00)]);
+    }
+    mail = sanitizeMailForDestination(mail, destRegion);
   }
 
 // Finally, enforce destination lengths for outer trainerName

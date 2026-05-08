@@ -36,296 +36,576 @@
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "ポケモンニュース　6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "ポケモンニュース　7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "ポケモンニュース　8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "ポケモンニュース　9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "ポケモンニュース　10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "ポケモンニュース　11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "ポケモンニュース　12"
         }
       },
       "e": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "#MON NEWS No.6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "#MON NEWS No.7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "#MON NEWS No.8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "#MON NEWS No.9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "#MON NEWS No.10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "#MON NEWS No.11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "#MON NEWS No.12"
         }
       },
       "f": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "INFOS PKMN No.6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "INFOS PKMN No.7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "INFOS PKMN No.8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "INFOS PKMN No.9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "INFOS PKMN No.10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "INFOS PKMN No.11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "INFOS PKMN No.12"
         }
       },
       "d": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "NACHRICHTEN Nr. 6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "NACHRICHTEN Nr. 7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "NACHRICHTEN Nr. 8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "NACHRICHTEN Nr. 9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "NACHRICHTEN Nr. 10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "NACHRICHTEN Nr. 11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "NACHRICHTEN Nr. 12"
         }
       },
       "s": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "NOTICIA PKMN N.º6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "NOTICIA PKMN N.º7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "NOTICIA PKMN N.º8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "NOTICIA PKMN N.º9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "NOTICIA PKMN N.º10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "NOTICIA PKMN N.º11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "NOTICIA PKMN N.º12"
         }
       },
       "i": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "NOTIZIE PKMN Nº6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "NOTIZIE PKMN Nº7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "NOTIZIE PKMN Nº8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "NOTIZIE PKMN Nº9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "NOTIZIE PKMN Nº10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "NOTIZIE PKMN Nº11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "NOTIZIE PKMN Nº12"
         }
       },
       "p": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "#MON NEWS No.6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "#MON NEWS No.7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "#MON NEWS No.8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "#MON NEWS No.9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "#MON NEWS No.10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "#MON NEWS No.11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "#MON NEWS No.12"
         }
       },
       "u": {
         "june_2002.bin": {
           "date": "05-22",
           "slot": 0,
-          "ranking_categories": [5, 29, 8]
+          "ranking_categories": [
+            5,
+            29,
+            8
+          ],
+          "message": "#MON NEWS No.6"
         },
         "july_2002.bin": {
           "date": "06-26",
           "slot": 1,
-          "ranking_categories": [5, 8, 12]
+          "ranking_categories": [
+            5,
+            8,
+            12
+          ],
+          "message": "#MON NEWS No.7"
         },
         "august_2002.bin": {
           "date": "07-31",
           "slot": 2,
-          "ranking_categories": [5, 12, 14]
+          "ranking_categories": [
+            5,
+            12,
+            14
+          ],
+          "message": "#MON NEWS No.8"
         },
         "september_2002.bin": {
           "date": "08-28",
           "slot": 3,
-          "ranking_categories": [5, 14, 16]
+          "ranking_categories": [
+            5,
+            14,
+            16
+          ],
+          "message": "#MON NEWS No.9"
         },
         "october_2002.bin": {
           "date": "09-25",
           "slot": 4,
-          "ranking_categories": [5, 16, 15]
+          "ranking_categories": [
+            5,
+            16,
+            15
+          ],
+          "message": "#MON NEWS No.10"
         },
         "november_2002.bin": {
           "date": "10-30",
           "slot": 5,
-          "ranking_categories": [5, 15, 13]
+          "ranking_categories": [
+            5,
+            15,
+            13
+          ],
+          "message": "#MON NEWS No.11"
         },
         "december_2002.bin": {
           "date": "11-27",
           "slot": 6,
-          "ranking_categories": [5, 13, 18]
+          "ranking_categories": [
+            5,
+            13,
+            18
+          ],
+          "message": "#MON NEWS No.12"
         }
       }
     }

@@ -2747,12 +2747,28 @@ if (!function_exists('bxt_validate_battle_tower_trainer_row')) {
             }
         }
 
-        if (!bxt_validate_player_name_bytes($game_region, $player_name_blob, $errors_local)) {
-            // errors added
+        $expected_name_len = ($region === 'j') ? 5 : 10;
+        if (!is_string($player_name_blob)) {
+            $errors_local[] = 'player_name: blob is not a string';
+        } else {
+            $nameLen = strlen($player_name_blob);
+            if ($nameLen !== $expected_name_len) {
+                $errors_local[] =
+                    'player_name: invalid length ' . $nameLen .
+                    ' for region ' . $region . ', expected ' . $expected_name_len;
+            }
+
+            $allowed = bxt_get_mail_author_allowed_byte_set_for_region($region);
+            for ($i = 0; $i < $nameLen; $i++) {
+                $v = ord($player_name_blob[$i]);
+                if (!isset($allowed[$v])) {
+                    $errors_local[] = sprintf('player_name: disallowed byte 0x%02X at offset %d', $v, $i);
+                }
+            }
         }
 
         // Easy Chat messages
-        if (!bxt_validate_battle_tower_record_row($game_region, $message_start_blob, $message_win_blob, $message_lose_blob, 0, 0, $errors_local)) {
+        if (!bxt_validate_battle_tower_record_row($game_region, $message_start_blob, $message_win_blob, $message_lose_blob, 0, 0, 0, 0, $level, $errors_local)) {
             // we reuse record validation for message blobs; counts are ignored here
         }
 
