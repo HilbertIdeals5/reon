@@ -31,12 +31,17 @@ program
   .parse(process.argv);
 
 const options = program.opts();
-const mainConfig = JSON.parse(fs.readFileSync(options.config, "utf8"));
-const newsConfigRaw = JSON.parse(fs.readFileSync(options.newsConfig, "utf8"));
+function parseJsonFile(filePath) {
+  const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  return JSON.parse(raw);
+}
+
+const mainConfig = parseJsonFile(options.config);
+const newsConfigRaw = parseJsonFile(options.newsConfig);
 let rotationConfigRaw = null;
 try {
   if (options.rotationConfig && fs.existsSync(options.rotationConfig)) {
-    rotationConfigRaw = JSON.parse(fs.readFileSync(options.rotationConfig, "utf8"));
+    rotationConfigRaw = parseJsonFile(options.rotationConfig);
   }
 } catch (e) {
   console.error("Failed to load rotation config:", e);
@@ -46,7 +51,7 @@ try {
 let featureAvailabilityConfigRaw = null;
 try {
   if (options.featureConfig && fs.existsSync(options.featureConfig)) {
-    featureAvailabilityConfigRaw = JSON.parse(fs.readFileSync(options.featureConfig, "utf8"));
+    featureAvailabilityConfigRaw = parseJsonFile(options.featureConfig);
   }
 } catch (e) {
   console.error("Failed to load feature availability config:", e);
@@ -141,7 +146,7 @@ const defaultNewsConfig = {
    * where scheduleEntry is:
    *   - "YYYY-MM-DD"
    *   - "MM-DD"
-   *   - { "date": "MM-DD", "slot": N, "ranking_categories": [c1, c2, c3]? }
+   *   - { "date": "MM-DD", "slot": N, "message": "POKéMON ...", "ranking_categories": [c1, c2, c3]? }
    */
   schedule: {},
 
@@ -1127,17 +1132,165 @@ function processFileRotations(rootDir, rotationCfg, cycleState, todayDate) {
   }
 }
 
-function decodeMessageBytes(buf, encoding, tableName) {
-  const table = encoding[tableName];
+function decodeMessageBytes(buf, tableName, encoding) {
+  const table = encoding && typeof encoding === "object" ? encoding[tableName] : null;
   if (!table) return null;
 
   let out = "";
   for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x50 || buf[i] === 0x00) break;
     const hex = buf[i].toString(16).toUpperCase().padStart(2, "0");
     const ch = table[hex];
     out += ch !== undefined ? ch : "?";
   }
   return out;
+}
+
+function repairMojibakeString(input) {
+  if (typeof input !== "string" || input.length === 0) return input || "";
+  try {
+    const repaired = Buffer.from(input, "latin1").toString("utf8");
+    if (repaired && !repaired.includes("\uFFFD")) {
+      return repaired;
+    }
+  } catch (e) {
+    // Fall through to the original string.
+  }
+  return input;
+}
+
+const MESSAGE_ENCODER_CACHE = new WeakMap();
+
+function getMessageEncoder(encoding, tableName) {
+  if (!encoding || typeof encoding !== "object") return null;
+
+  let perEncodingCache = MESSAGE_ENCODER_CACHE.get(encoding);
+  if (!perEncodingCache) {
+    perEncodingCache = new Map();
+    MESSAGE_ENCODER_CACHE.set(encoding, perEncodingCache);
+  }
+  if (perEncodingCache.has(tableName)) {
+    return perEncodingCache.get(tableName);
+  }
+
+  const table = encoding[tableName];
+  if (!table || typeof table !== "object") {
+    perEncodingCache.set(tableName, null);
+    return null;
+  }
+
+  const tokenToByte = new Map();
+  for (const [hex, mapped] of Object.entries(table)) {
+    const byteValue = Number.parseInt(hex, 16);
+    if (!Number.isInteger(byteValue) || byteValue < 0 || byteValue > 0xff) {
+      continue;
+    }
+    if (typeof mapped !== "string" || mapped.length === 0) {
+      continue;
+    }
+
+    const variants = [mapped];
+    const repaired = repairMojibakeString(mapped);
+    if (repaired && repaired !== mapped) {
+      variants.push(repaired);
+    }
+
+    for (const candidate of variants) {
+      const normalized = String(candidate).normalize("NFC");
+      if (normalized.length && !tokenToByte.has(normalized)) {
+        tokenToByte.set(normalized, byteValue);
+      }
+    }
+  }
+
+  const tokens = [];
+  for (const [token, byteValue] of tokenToByte.entries()) {
+    tokens.push({
+      token,
+      byteValue,
+      len: Array.from(token).length,
+    });
+  }
+  tokens.sort((a, b) => b.len - a.len);
+
+  const encoder = { tokens };
+  perEncodingCache.set(tableName, encoder);
+  return encoder;
+}
+
+function encodeMessageText(message, tableName, encoding, maxBytes) {
+  const limit = Number.isInteger(maxBytes) && maxBytes > 0 ? maxBytes : 0;
+  if (!limit) return Buffer.alloc(0);
+
+  const encoder = getMessageEncoder(encoding, tableName);
+  if (!encoder || !Array.isArray(encoder.tokens) || !encoder.tokens.length) {
+    return Buffer.alloc(limit, 0x50);
+  }
+
+  let normalizedSource = String(
+    message === undefined || message === null ? "" : message
+  ).normalize("NFC");
+  // Normalize non-ASCII spacing used in some schedule messages.
+  normalizedSource = normalizedSource.replace(/\u3000/g, " ");
+  // In non-J language content, '#' is often used as a shorthand token for POKé.
+  // Expand it before table-token matching so it encodes to the expected byte(s).
+  if (tableName === "en" || tableName === "fr_de" || tableName === "es_it") {
+    normalizedSource = normalizedSource.replace(/#/g, "POK\u00E9");
+  }
+  // Spanish/Italian tables support masculine ordinal indicator º (0xBA).
+  // Normalize common degree sign usage to º before token matching.
+  if (tableName === "es_it") {
+    normalizedSource = normalizedSource.replace(/\u00B0/g, "\u00BA");
+  }
+
+  const out = [];
+  const src = Array.from(normalizedSource);
+
+  let i = 0;
+  while (i < src.length && out.length < limit) {
+    let matched = false;
+    for (const entry of encoder.tokens) {
+      if (i + entry.len > src.length) continue;
+      const candidate = src.slice(i, i + entry.len).join("");
+      if (candidate === entry.token) {
+        out.push(entry.byteValue);
+        i += entry.len;
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      i += 1;
+    }
+  }
+
+  while (out.length < limit) out.push(0x50);
+  return Buffer.from(out);
+}
+
+function buildScheduledMessageField(newsBinary, plainMessage, tableName, encoding) {
+  if (!Buffer.isBuffer(newsBinary)) return null;
+
+  const start = 0x18;
+  if (newsBinary.length <= start) return null;
+
+  let end = start;
+  while (end < newsBinary.length && newsBinary[end] !== 0x50) {
+    end++;
+  }
+  if (end <= start) {
+    end = Math.min(start + 0x21, newsBinary.length);
+  }
+  if (end <= start) return null;
+
+  const messageLen = end - start;
+  const messageBuf = encodeMessageText(plainMessage, tableName, encoding, messageLen);
+  const decoded = decodeMessageBytes(messageBuf, tableName, encoding);
+
+  return {
+    messageBuf,
+    messageDecode: decoded,
+  };
 }
 
 /**
@@ -1231,22 +1384,6 @@ function decodeRankingCategory(region, categoryNumber, encoding, newsCfg) {
 }
 
 /**
- * Read message bytes from a news binary:
- *   from offset 0x18 up to but NOT including the first 0x50 byte.
- */
-function extractMessageBytes(buf) {
-  const start = 0x18;
-  if (buf.length <= start) return Buffer.alloc(0);
-
-  let end = start;
-  while (end < buf.length && buf[end] !== 0x50) {
-    end++;
-  }
-  if (end <= start) return Buffer.alloc(0);
-  return buf.slice(start, end);
-}
-
-/**
  * Convert Date -> midnight date-only (for comparisons).
  */
 function toDateOnly(d) {
@@ -1257,7 +1394,7 @@ function toDateOnly(d) {
  * Parse a schedule entry, which can be:
  *   - "YYYY-MM-DD" (absolute date)
  *   - "MM-DD"      (recurring every year)
- *   - { "date": "MM-DD", "slot": N } (recurring with cycle slot)
+ *   - { "date": "MM-DD", "slot": N, "message": "...", "ranking_categories": [...]? }
  */
 function parseScheduleEntry(entry) {
   if (typeof entry === "string") {
@@ -1272,6 +1409,7 @@ function parseScheduleEntry(entry) {
         day: d.getDate(),
         slot: null,
         rankingCategories: null,
+        message: null,
       };
     }
 
@@ -1289,6 +1427,7 @@ function parseScheduleEntry(entry) {
         day,
         slot: null,
         rankingCategories: null,
+        message: null,
       };
     }
 
@@ -1311,6 +1450,10 @@ function parseScheduleEntry(entry) {
           x !== null && x !== undefined ? Number(x) : null
         )
       : null;
+    const message =
+      entry.message !== undefined && entry.message !== null
+        ? String(entry.message)
+        : null;
 
     if (slot !== null && !Number.isInteger(slot)) return null;
 
@@ -1321,6 +1464,7 @@ function parseScheduleEntry(entry) {
       day: base.day,
       slot,
       rankingCategories,
+      message,
     };
   }
 
@@ -1783,6 +1927,12 @@ async function processPokemonNewsCycle(
       chosenEntry && chosenEntry.parsed && chosenEntry.parsed.rankingCategories
         ? chosenEntry.parsed.rankingCategories
         : null;
+    const chosenMessage =
+      chosenEntry &&
+      chosenEntry.parsed &&
+      typeof chosenEntry.parsed.message === "string"
+        ? chosenEntry.parsed.message
+        : null;
 
     const binPath = path.join(regionDir, String(chosenArticleId));
     if (!fs.existsSync(binPath) || !fs.statSync(binPath).isFile()) {
@@ -1795,9 +1945,32 @@ async function processPokemonNewsCycle(
     const binData = fs.readFileSync(binPath);
 
     // 1) message + message_decode
-    const messageBuf = extractMessageBytes(binData);
     const encTableName = newsCfg.region_message_encoding[region] || "en";
-    const messageDecode = decodeMessageBytes(messageBuf, encTableName, encoding);
+    if (chosenMessage === null) {
+      console.warn(
+        `[news:${trackLabel}] configured article ${chosenArticleId} for region=${region} is missing schedule.message; skipping`
+      );
+      continue;
+    }
+
+    const scheduledMessage = buildScheduledMessageField(
+      binData,
+      chosenMessage,
+      encTableName,
+      encoding
+    );
+    if (!scheduledMessage) {
+      console.warn(
+        `[news:${trackLabel}] could not encode schedule.message for region=${region}, article=${chosenArticleId}; skipping`
+      );
+      continue;
+    }
+
+    const messageBuf = scheduledMessage.messageBuf;
+    const messageDecode =
+      scheduledMessage.messageDecode !== null
+        ? scheduledMessage.messageDecode
+        : String(chosenMessage).normalize("NFC");
 
     // 2) ranking categories
     const slots = findRankingSlots(binData);
